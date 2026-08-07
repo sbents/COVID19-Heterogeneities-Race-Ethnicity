@@ -379,7 +379,7 @@ fig1b_over65 <- get_IFR %>%
   scale_fill_manual("Race/ethnicity",values = re_pal[2:6]) +
   facet_wrap(~Age, scales = "free") + 
   xlab("State") + 
-  ylab("Infection fatality rate (%)") + 
+  ylab("Infection fatality ratio (%)") + 
   theme_bw() +
   theme(axis.text = element_text(size = 12, color = "black"),
         axis.title = element_text(size = 12, color = "black"),
@@ -559,7 +559,7 @@ cfr_plot_under65 <- cfr %>%
   scale_color_manual("Race/ethnicity",values = re_pal[2:6]) +
   scale_fill_manual("Race/ethnicity",values = re_pal[2:6])  +
   xlab("State") + 
-  ylab("Case fatality rate (%)") + 
+  ylab("Case fatality ratio (%)") + 
   theme_bw() +
   theme(axis.text = element_text(size = 12, color = "black"),
         axis.title = element_text(size = 12, color = "black"),
@@ -586,7 +586,7 @@ cfr_plot_over65 <- cfr %>%
   scale_color_manual("Race/ethnicity",values = re_pal[2:6]) +
   scale_fill_manual("Race/ethnicity",values = re_pal[2:6])  +
   xlab("State") + 
-  ylab("Case fatality rate (%)") + 
+  ylab("Case fatality ratio (%)") + 
   theme_bw() +
   theme(axis.text = element_text(size = 12, color = "black"),
         axis.title = element_text(size = 12, color = "black"),
@@ -2157,7 +2157,7 @@ print(diff_intervals)
 
 
 ###########################################################################################
-# Coverage for phase 1 and 2                                                              #        
+# Coverage for phase 1                                                                   #        
 ###########################################################################################
 
 
@@ -2406,7 +2406,7 @@ ggplot(coverage_plot, aes(x = alpha, y = sum_cov, col = race_ethnicity, fill = r
   scale_fill_manual(values = re_pal[2:6]) +
   ylab("Coverage") + xlab("Alpha value") +
   theme_bw() +
-  theme(legend.position = "bottom") +
+  theme(legend.position = "right") +
   guides(color = guide_legend(title = "Race/ethnicity"),
          fill  = guide_legend(title = "Race/ethnicity")) +
   theme(axis.text = element_text(size = 8, color = "black"),
@@ -2415,6 +2415,263 @@ ggplot(coverage_plot, aes(x = alpha, y = sum_cov, col = race_ethnicity, fill = r
         strip.background = element_rect(colour = "white", fill = "white"),
         panel.border = element_rect(colour = "black", fill = NA))
 
+
+
+###########################################################################################
+# Coverage for phase 2                                                                  #        
+###########################################################################################
+
+
+#data_path <- "../processed/data_feb_2025"
+data_path <- "../processed/data_mar_2025"
+
+#round_id_date <- "2024-06-25" #Phase 1 
+round_id_date <- "2024-07-16" #Phase 2
+
+# Name of the ensemble(s) to exclude from the analysis
+ens_to_excl <- c("Ensemble", "Ensemble_LOP")
+
+# Target on which to run the analysis (cumulative and incidence version)
+target_cum <- "cum death"
+#target_inc <- "inc death"
+
+# Number of sample use to generate the ensemble
+n_sample <- 100
+
+# Max horizon
+max_horizon <- 20
+
+# Path to observed data (csv format)
+#obs_data_path <-
+#  paste0("https://raw.githubusercontent.com/midas-network/",
+#         "covid19-smh-research/main/target-data/target_data_phase2.csv")
+
+obs_data_path <-
+  paste0("https://raw.githubusercontent.com/midas-network/",
+         "covid19-smh-research/main/target-data/time-series.csv")
+
+# Day - 1 to start observed data
+start_obs <- as.Date("2020-11-14")
+
+###########################################################################################################
+# Load data 
+# Connection to processed data
+dc <- arrow::open_dataset(paste0(data_path, "/model-processed/"),
+                          partitioning = c("round_id", "model_id", "target",
+                                           "location"))
+
+# Data frame of cumulative deaths by race/ethnicity at final time point 
+df_models <- dplyr::filter(dc, output_type == "quantile", # race_ethnicity != "overall"
+                           target == target_inc, round_id == round_id_date) %>%
+  dplyr::collect() %>%
+  dplyr::mutate(time_value = as.Date(origin_date) + horizon * 7 - 1) %>%
+  #   model_id = mod_encode[model_id]) %>%
+  dplyr::mutate(overall = sum(value),
+                .by = c("model_id", "location", "output_type_id", "scenario_id",
+                        "target")) %>%
+  dplyr::mutate(model_ratio = value / overall) %>%
+  mutate(time_value = as.Date(time_value)) %>%
+  mutate(model_id = replace(model_id, model_id == "cumt-seivrcm", "A"))  %>%
+  mutate(model_id = replace(model_id, model_id == "JHU_UNC-flepiMoP", "B"))  %>%
+  mutate(model_id = replace(model_id, model_id == "MOBS_NEU-COVACS_SEIR", "C"))  %>%
+  mutate(model_id = replace(model_id, model_id == "NIH_UIUC-RIFTcov", "D"))  %>%
+  mutate(model_id = replace(model_id, model_id == "UTA-ImmunoSEIRS", "E"))  %>%
+  mutate(model_id = replace(model_id, model_id == "UVA-EpiHiper", "F"))  %>%
+  mutate(model_id = replace(model_id, model_id == "USC-SIkJalpha", "G"))  %>% # subset this out for phase 2 
+  mutate(model_id = replace(model_id, model_id == "Ensemble_LOP_untrimmed", "Ensemble LOP"))  %>%
+  filter(model_id != "Ensemble_LOP") %>%
+  filter(scenario_id == "A-2020-11-15")
+head(df_models)
+print(unique(df_models$model_id))
+
+quantiles = print(unique(df_models$output_type_id))
+
+# Time series by loaction and race ethnicity of incident deaths 
+
+obs_death_data <- read.csv(obs_data_path) %>%
+  dplyr::mutate(obs = as.numeric(observation) + as.numeric(min_suppressed),
+                date = as.Date(date),
+                location = as.numeric(location)) %>%
+  dplyr::filter(date > start_obs, target == target_inc) %>%
+  dplyr::select(location, race_ethnicity, time_value = date, obs)
+head(obs_death_data)
+
+gold_standard_data_ts <-
+  rbind(obs_death_data, dplyr::summarise(obs_death_data, obs = sum(obs),
+                                         .by = c("time_value", "location")) %>%
+          dplyr::mutate(race_ethnicity = "overall")) %>%
+  mutate(time_value = as.Date(time_value)) %>%
+  ungroup()
+head(gold_standard_data_ts)
+
+# add observations to gold star data 
+df_gs = left_join( gold_standard_data_ts, df_models, by = c("time_value", "location", "race_ethnicity")) 
+head(df_gs)
+
+
+
+cov <- data.table(alpha = c(seq(0.1, 0.9, 0.1), 0.95, 0.98)) # find upper and lower intervals for all alpha levels
+cov$upr <- cov$alpha/2 + 0.5
+cov$lwr <- 1-(cov$alpha/2 + 0.5)
+cov <- melt(cov, "alpha", value.name = "quantile") #cov %>% dplyr::rename(quantile = value) -> cov
+cov$quantile = round(cov$quantile, 3) 
+cov$quantile = as.numeric(cov$quantile)
+setDT(cov)
+
+#####################################
+# make quantiles of the data 
+#quantiles = print(unique(df_models$output_type_id))
+#print(quantiles)
+
+head(df_gs)
+quantile_probs <- c(0.010, 0.025, 0.050, 0.100, 0.150, 0.200, 0.250, 0.300, 
+                    0.350, 0.400, 0.450, 0.500, 0.550, 0.600, 0.650, 0.700, 
+                    0.750, 0.800, 0.850, 0.900, 0.950, 0.975, 0.990)
+
+# Calculate quantiles grouped by location, race_ethnicity, and model_id
+# while keeping other columns
+quantile_results <- df_gs %>%
+  group_by(location, race_ethnicity, model_id, origin_date, scenario_id, 
+           horizon, output_type, round_id, target, time_value, obs) %>%
+  summarise(
+    quantiles = list(quantile(value, probs = quantile_probs, na.rm = TRUE)),
+    quantile_levels = list(quantile_probs),
+    .groups = "drop" ) %>%
+  unnest(cols = c(quantiles, quantile_levels)) %>%
+  mutate(output_type_id = quantile_levels, value = quantiles)
+head(quantile_results)
+summary(quantile_results$obs)
+head(cov)
+
+# need to change scenario id 
+# "A-2020-05-01"
+
+#cov_modes <- cov[quantile_results  %>% filter(scenario_id == "A-2020-05-01"), on = .(quantile = output_type_id), allow.cartesian=TRUE] %>% # A-2020-11-15
+#  .[quantile != 0.5] %>%
+#  data.table::dcast(location + race_ethnicity + model_id  + alpha + obs ~ variable, value.var = "value") %>%
+#  .[, ":=" (cov = ifelse(obs < upr & obs > lwr, 1, 0))] %>%
+#  .[, ":=" (upr = NULL,
+#           lwr = NULL,
+#           obs = NULL)]
+#head(cov_modes)
+
+cov_modes <- cov[quantile_results , on = .(quantile = output_type_id), allow.cartesian=TRUE] %>% # A-2020-11-15
+  .[quantile != 0.5] %>%
+  data.table::dcast(location + race_ethnicity + model_id  + alpha + obs + time_value ~ variable, value.var = "value") %>%
+  .[, ":=" (cov = ifelse(obs < upr & obs > lwr, 1, 0))] %>%
+  .[, ":=" (upr = NULL,
+            lwr = NULL,
+            obs = NULL)]
+head(cov_modes)
+
+# Plot coverage by model against alpha. 
+cov_modes %>%
+  filter(race_ethnicity != "overall") %>%
+  mutate(location = replace(location, location == 6, "California")) %>%
+  mutate(location = replace(location, location == 37, "North Carolina")) %>%
+  mutate(race_ethnicity = replace(race_ethnicity, race_ethnicity == "asian", "Asian"))%>%
+  mutate(race_ethnicity = replace(race_ethnicity, race_ethnicity == "black", "Black")) %>%
+  mutate(race_ethnicity = replace(race_ethnicity, race_ethnicity == "latino", "Latino")) %>%
+  mutate(race_ethnicity = replace(race_ethnicity, race_ethnicity == "other", "Other")) %>%
+  mutate(race_ethnicity = replace(race_ethnicity, race_ethnicity == "white", "White")) %>%
+  group_by(alpha, race_ethnicity, location, model_id) %>%
+  summarize(sum_cov=sum(cov)/n()) %>%
+  ggplot(aes(x = alpha, y = sum_cov, col = race_ethnicity)) +
+  geom_line(linewidth = 1) + 
+  theme_bw() +
+  scale_color_manual(values = re_pal[2:6]) +
+  ylab("Coverage") +
+  xlab("Alpha value")+
+  geom_abline(intercept = 0, slope = 1, color = "black", linetype = "dashed") +
+  #facet_grid(vars(location), vars(model_id)) +
+  facet_grid(vars(factor(model_id, levels = c("A", "B", "C", "D", "E", "F", "G", "Null", "Ensemble", "Ensemble LOP"))), vars(location)) + # remove G for phase 2 
+  #  scale_color_viridis(discrete = TRUE, option = "G", begin = 0, end = .9) +
+  theme(legend.position = "bottom") +
+  guides(color =guide_legend(title="Race/ethnicity")) +
+  theme(axis.text = element_text(size = 8, color = "black"),
+        axis.title = element_text(size = 9, color = "black"),
+        axis.line = element_blank(),
+        axis.ticks = element_line(color = "black"),
+        plot.title = element_text(colour = "black", size = 9, face = "bold"),
+        plot.title.position = "plot",
+        plot.subtitle = element_text(colour = "black", size = 9),
+        plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"),
+        legend.position = "bottom",
+        legend.key.width = unit(0.5, "cm"),
+        legend.text = element_text(size = 9, color = "black"),
+        legend.title = element_text(size = 9, color = "black"),
+        #  legend.margin=margin(1,1.5,0.5,0.5,unit = "line"),
+        strip.text = element_text(colour = "black", size = 8, hjust = 0),
+        strip.background = element_rect(colour="white", fill="white"),
+        panel.border = element_rect(colour = "black", fill=NA))
+
+
+###########################################################################################
+# Supplementary File: Coverage for phase 2 with error                                     #        
+###########################################################################################
+
+#set.seed(3)
+n_boot <- 1000
+
+# cov_modes has: location, race_ethnicity, model_id, alpha, time_value, cov
+setDT(cov_modes)
+
+# The bootstrap unit = time_value (resample weeks with replacement),
+# done WITHIN each location x race x model x alpha cell so structure is preserved.
+# For each bootstrap replicate, resample the set of time points and recompute coverage.
+
+# Get the distinct time points available (per group, in case they differ)
+boot_coverage <- function(dt, n_boot = 1000) {
+  # dt is one group's rows (one row per time_value, with cov 0/1)
+  tvs <- dt$cov
+  n <- length(tvs)
+  if (n == 0) return(data.table(boot_mean = NA_real_, Q5 = NA_real_, Q95 = NA_real_))
+  # resample indices with replacement, n_boot times
+  boot_means <- replicate(n_boot, mean(sample(tvs, n, replace = TRUE)))
+  data.table(boot_mean = mean(boot_means),
+             Q5 = quantile(boot_means, 0.025),
+             Q95 = quantile(boot_means, 0.975))
+}
+
+coverage_ci <- cov_modes[
+  race_ethnicity != "overall"
+][, boot_coverage(.SD, n_boot = n_boot),
+  by = .(alpha, race_ethnicity, location, model_id)]
+
+# point estimate (observed coverage) to plot alongside
+coverage_point <- cov_modes[race_ethnicity != "overall",
+                            .(sum_cov = sum(cov)/.N), by = .(alpha, race_ethnicity, location, model_id)]
+
+# merge point + CI
+coverage_plot <- coverage_point[coverage_ci,
+                                on = .(alpha, race_ethnicity, location, model_id)]
+
+# relabel for display
+coverage_plot[, location := fifelse(location == 6, "California",
+                                    fifelse(location == 37, "North Carolina", as.character(location)))]
+re_map <- c(asian="Asian", black="Black", latino="Latino", other="Other", white="White")
+coverage_plot[, race_ethnicity := fifelse(race_ethnicity %in% names(re_map),
+                                          re_map[race_ethnicity], race_ethnicity)]
+
+
+ggplot(coverage_plot, aes(x = alpha, y = sum_cov, col = race_ethnicity, fill = race_ethnicity)) +
+  geom_ribbon(aes(ymin = Q5, ymax = Q95), alpha = 0.2, color = NA) +   # error band
+  geom_line(linewidth = 1) +
+  geom_abline(intercept = 0, slope = 1, color = "black", linetype = "dashed") +
+  facet_grid(vars(factor(model_id, levels = c("A","B","C","D","E","F","G","Null","Ensemble","Ensemble LOP"))),
+             vars(location)) +
+  scale_color_manual(values = re_pal[2:6]) +
+  scale_fill_manual(values = re_pal[2:6]) +
+  ylab("Coverage") + xlab("Alpha value") +
+  theme_bw() +
+  theme(legend.position = "right") +
+  guides(color = guide_legend(title = "Race/ethnicity"),
+         fill  = guide_legend(title = "Race/ethnicity")) +
+  theme(axis.text = element_text(size = 8, color = "black"),
+        axis.title = element_text(size = 9, color = "black"),
+        strip.text = element_text(colour = "black", size = 8, hjust = 0),
+        strip.background = element_rect(colour = "white", fill = "white"),
+        panel.border = element_rect(colour = "black", fill = NA))
 
 
 
@@ -2693,5 +2950,182 @@ diff_intervals <- diff_dist[, .(
 print(diff_intervals)
 
 
+
+###################################################################
+# Sensitivity analysis using the Vincent average on household interventions 
+########################################################################
+# SENSITIVITY ANALYSIS — targeted household transmission
+# VINCENT ENSEMBLE version (matches Figure 3a/3b construction)
+#
+# Ensemble = per-model quantiles, then AVERAGE the quantiles across models
+# (NOT pooling all draws and taking one 95% PI). This mirrors the `vincent`
+# object (lines ~1099-1108) and Figure 3b's quantiles_by_model (~1341-1352).
+#
+# Pipeline (per draw, per model):
+#   averted_inf_d    = cum_inf_d * f_h * r_applied
+#   IFR_d            = cum_death_d / cum_inf_d
+#   new_deaths_d     = cum_death_d - averted_inf_d * IFR_d
+# Then: quantiles of baseline & intervention deaths PER MODEL,
+#       then average each quantile ACROSS models (Vincent).
+#
+# Anchors: f_h 20-40% (EID 10.3201/eid2808.220420; CID 10.1093/cid/ciab701)
+#          r   40-70% (10.1017/S0950268825100642; 10.1038/s43856-023-00325-6)
+########################################################################
+
+library(dplyr); library(tidyr); library(purrr); library(ggplot2)
+
+# ======================================================================
+# STEP 0 — Parameters
+# ======================================================================
+f_h_central <- 0.30
+r_central   <- 0.55
+f_h_grid    <- c(0.20, 0.30, 0.40)
+r_grid      <- c(0.40, 0.55, 0.70)
+q_levels    <- c(.025, .5, .975)
+
+targeted_groups <- c("asian", "black", "latino", "other", "white")   # lowercase (raw)
+scenario_A_phase2 <- "A-2020-11-15"
+
+# match Figure 3b: exclude the unpaired model(s) so paired draw arithmetic
+# (subtracting within a draw) is valid
+unpaired_models <- c("UVA-EpiHiper")   # add "NIH_UIUC-RIFTcov" if you treat it unpaired
+
+label_re <- function(x) dplyr::recode(x, asian="Asian", black="Black",
+                                      latino="Latino", other="Other", white="White")
+label_loc <- function(x) dplyr::recode(as.character(x),
+                                       `6`="California", `37`="North Carolina",
+                                       California="California", `North Carolina`="North Carolina")
+
+# ======================================================================
+# STEP 1 — Scenario A draws: align cum inf & cum death within each draw
+# ======================================================================
+draws <- df2 %>%
+  filter(scenario_id == scenario_A_phase2,
+         race_ethnicity != "overall",
+         !model_id %in% unpaired_models,
+         target %in% c("cum inf", "cum death")) %>%
+  dplyr::select(model_id, location, race_ethnicity, output_type_id, target, value) %>%
+  pivot_wider(names_from = target, values_from = value) %>%
+  rename(cum_inf = `cum inf`, cum_death = `cum death`) %>%
+  filter(!is.na(cum_inf), !is.na(cum_death), cum_inf > 0) %>%
+  mutate(ifr = cum_death / cum_inf)
+
+# ======================================================================
+# STEP 2 — Apply counterfactual per draw, across the f_h x r grid
+# ======================================================================
+grid <- tidyr::crossing(f_h = f_h_grid, r = r_grid)
+
+apply_draws <- function(f_h, r) {
+  draws %>%
+    mutate(
+      r_applied      = ifelse(race_ethnicity %in% targeted_groups, r, 0),
+      averted_inf    = cum_inf * f_h * r_applied,
+      new_deaths     = cum_death - averted_inf * ifr,
+      f_h = f_h, r = r
+    )
+}
+draws_all <- pmap_dfr(grid, apply_draws)
+
+# ======================================================================
+# STEP 3 — VINCENT ENSEMBLE
+#   (a) quantiles of baseline & intervention deaths PER MODEL
+#   (b) average each quantile ACROSS models
+# ======================================================================
+# (a) per-model quantiles
+per_model_q <- draws_all %>%
+  group_by(f_h, r, model_id, location, race_ethnicity) %>%
+  summarise(
+    base_025 = quantile(cum_death,  0.025, na.rm = TRUE),
+    base_50  = quantile(cum_death,  0.5,   na.rm = TRUE),
+    base_975 = quantile(cum_death,  0.975, na.rm = TRUE),
+    new_025  = quantile(new_deaths, 0.025, na.rm = TRUE),
+    new_50   = quantile(new_deaths, 0.5,   na.rm = TRUE),
+    new_975  = quantile(new_deaths, 0.975, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# (b) Vincent average: mean of each quantile across models
+vincent_ens <- per_model_q %>%
+  group_by(f_h, r, location, race_ethnicity) %>%
+  summarise(
+    base_025 = mean(base_025), base_50 = mean(base_50), base_975 = mean(base_975),
+    new_025  = mean(new_025),  new_50  = mean(new_50),  new_975  = mean(new_975),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    averted_50  = base_50  - new_50,
+    pct_50      = 100 * (base_50 - new_50) / base_50,
+    race_ethnicity = label_re(race_ethnicity),
+    location       = label_loc(location)
+  )
+
+# Central-parameter table (headline per group x state)
+vincent_central <- vincent_ens %>% filter(f_h == f_h_central, r == r_central)
+cat("\n=== VINCENT ensemble, central (f_h=0.30, r=0.55): by group x state ===\n")
+print(as.data.frame(vincent_central %>%
+                      dplyr::select(location, race_ethnicity, base_50, new_50, averted_50, pct_50)),
+      digits = 4)
+
+# Range across the grid, per group x state
+vincent_range <- vincent_ens %>%
+  group_by(location, race_ethnicity) %>%
+  summarise(averted_min = min(averted_50), averted_max = max(averted_50),
+            pct_min = min(pct_50), pct_max = max(pct_50), .groups = "drop")
+cat("\n=== VINCENT ensemble: averted-death & % range across grid ===\n")
+print(as.data.frame(vincent_range), digits = 4)
+
+# ======================================================================
+# STEP 4 — BAR PLOT: Scenario A (as modeled) vs household intervention
+#   Vincent ensemble median bars, 95% Vincent-averaged interval error bars,
+#   per race/ethnicity, faceted by state (central parameters).
+# ======================================================================
+plot_dat <- vincent_central %>%
+  transmute(location, race_ethnicity,
+            `Phase 2 Scenario A`      = base_50,
+            `Household-targeted intervention`       = new_50,
+            baseA_lo = base_025, baseA_hi = base_975,
+            new_lo  = new_025,  new_hi  = new_975) %>%
+  pivot_longer(cols = c(`Phase 2 Scenario A`, `Household-targeted intervention`),
+               names_to = "scenario", values_to = "deaths") %>%
+  mutate(lo = ifelse(scenario == "Phase 2 Scenario A", baseA_lo, new_lo),
+         hi = ifelse(scenario == "Phase 2 Scenario A", baseA_hi, new_hi),
+         scenario = factor(scenario,
+                           levels = c("Phase 2 Scenario A", "Household-targeted intervention")))
+
+p_bar <- ggplot(plot_dat, aes(x = race_ethnicity, y = deaths, fill = scenario)) +
+  geom_col(position = position_dodge(width = 0.9), color = "black", linewidth = 0.2) +
+  geom_errorbar(aes(ymin = lo, ymax = hi),
+                position = position_dodge(width = 0.9), width = 0.25) +
+  facet_wrap(~location, scales = "free") +
+  scale_fill_manual(values = c("Phase 2 Scenario A" = "#4F5B66",
+                               "Household-targeted intervention"   = "#0A79AA"), name = NULL) +
+  labs(x = "Race/ethnicity", y = "Projected cumulative deaths") +
+       #title = "Projected deaths: Scenario A vs. targeted household-transmission intervention",
+    #   subtitle = sprintf("Vincent ensemble; household-attributable fraction = %.0f%%, reduction = %.0f%%; error bars = averaged 95%% quantiles",
+                        #  100*f_h_central, 100*r_central)) +
+  theme_bw() +
+  theme(axis.text = element_text(size = 11, color = "black"),
+        axis.title = element_text(size = 12),
+        legend.position = "bottom",
+        strip.text = element_text(size = 12, hjust = 0),
+        strip.background = element_rect(colour = "white", fill = "white"),
+        panel.border = element_rect(colour = "black", fill = NA))
+p_bar
+
+# ======================================================================
+# STEP 5 — Overall headline (Vincent): sum groups within the ensemble,
+#          per (f_h, r); report % of total projected deaths averted.
+# ======================================================================
+overall_vincent <- vincent_ens %>%
+  group_by(f_h, r, location) %>%
+  summarise(base_total = sum(base_50), new_total = sum(new_50), .groups = "drop") %>%
+  group_by(f_h, r) %>%
+  summarise(base_total = sum(base_total), new_total = sum(new_total), .groups = "drop") %>%
+  mutate(pct_averted = 100 * (base_total - new_total) / base_total)
+
+cat("\n=== VINCENT ensemble: overall % of projected deaths averted, across grid ===\n")
+print(as.data.frame(overall_vincent), digits = 4)
+cat(sprintf("\nHeadline (Vincent): overall deaths averted = %.1f%% to %.1f%% across assumptions.\n",
+            min(overall_vincent$pct_averted), max(overall_vincent$pct_averted)))
 
 
