@@ -700,8 +700,10 @@ df2 <- dplyr::filter(dc2, output_type == "sample", race_ethnicity != "overall",
                 .by = c("model_id", "location", "output_type_id", "scenario_id",
                         "target")) %>%
   dplyr::mutate(model_ratio = value / overall)
-head(df)
+head(df2)
 print(unique(df$model_id))
+print(unique(df2$scenario_id))
+
 
 model_IFRs <- df2 %>% 
   filter(scenario_id == "A-2020-11-15") %>%
@@ -3128,4 +3130,279 @@ print(as.data.frame(overall_vincent), digits = 4)
 cat(sprintf("\nHeadline (Vincent): overall deaths averted = %.1f%% to %.1f%% across assumptions.\n",
             min(overall_vincent$pct_averted), max(overall_vincent$pct_averted)))
 
+
+###################################################################
+##################################################################
+# August 30 
+
+
+r_central <- 0.55
+r_grid    <- c(0.40, 0.55, 0.70)     # 40-70% household attack-rate reduction range
+q_levels  <- c(.025, .5, .975)
+
+targeted_groups <- c("asian", "black", "latino", "other", "white")   # lowercase (raw)
+
+# Phase 2 Scenario B identifier, analogous to scenario_A_phase2 ("A-2020-11-15")
+scenario_B_phase2 <- "B-2020-11-15"
+
+unpaired_models <- c("UVA-EpiHiper")   # add "NIH_UIUC-RIFTcov" if you treat it unpaired
+
+label_re <- function(x) dplyr::recode(x, asian="Asian", black="Black",
+                                      latino="Latino", other="Other", white="White")
+label_loc <- function(x) dplyr::recode(as.character(x),
+                                       `6`="California", `37`="North Carolina",
+                                       California="California", `North Carolina`="North Carolina")
+
+
+pop_tbl <- tibble::tribble(
+  ~location,          ~race_ethnicity, ~pop,
+  "California",        "Asian",         5743983,
+  "California",        "Black",         2142371,
+  "California",        "Latino",        15380929,
+  "California",        "White",         14365145,
+  "California",        "Other",         1713595,
+  "North Carolina",    "Asian",         341052,
+  "North Carolina",    "Black",         2155650,
+  "North Carolina",    "White",         6497519,
+  "North Carolina",    "Other",         1704752
+  # NC has no Latino row: not a data gap, there is no NC-Latino population
+  # target in this analysis. That combo will have no pop-ratio reference and
+  # its averted infections/deaths are set to 0 (flagged below), which is the
+  # correct behavior here, not a placeholder.
+)
+
+# ======================================================================
+# STEP 1 - Scenario B draws: pull cum inf & cum death, paired within draw
+# ======================================================================
+draws_B_raw <- df2 %>%
+  filter(scenario_id == scenario_B_phase2,
+         race_ethnicity != "overall",
+         !model_id %in% unpaired_models,
+         target %in% c("cum inf", "cum death")) %>%
+  dplyr::select(model_id, location, race_ethnicity, output_type_id, target, value) %>%
+  pivot_wider(names_from = target, values_from = value) %>%
+  rename(cum_inf = `cum inf`, cum_death = `cum death`) %>%
+  filter(!is.na(cum_inf), !is.na(cum_death), cum_inf > 0) %>%
+  mutate(ifr = cum_death / cum_inf,
+         race_ethnicity_label = label_re(race_ethnicity),
+         location_label       = label_loc(location))
+
+# ======================================================================
+# STEP 2 - Excess household-attributable infections
+#   excess = group's actual cum_inf - expected cum_inf if the group's
+#            infection:population ratio matched the White population's
+#            ratio, WITHIN THE SAME model_id / location / draw (paired)
+# ======================================================================
+white_ratio <- draws_B_raw %>%
+  filter(race_ethnicity_label == "White") %>%
+  transmute(model_id, location, output_type_id, white_ratio = cum_inf / pop_tbl$pop[
+    match(paste(location_label, race_ethnicity_label), paste(pop_tbl$location, pop_tbl$race_ethnicity))
+  ])
+# (join done via match() above only for the White rows themselves; cleaner
+#  equivalent join below is what actually gets used downstream)
+white_ratio <- draws_B_raw %>%
+  filter(race_ethnicity_label == "White") %>%
+  left_join(pop_tbl, by = c("location_label" = "location", "race_ethnicity_label" = "race_ethnicity")) %>%
+  transmute(model_id, location, output_type_id, white_ratio = cum_inf / pop)
+
+draws_B <- draws_B_raw %>%
+  left_join(pop_tbl, by = c("location_label" = "location", "race_ethnicity_label" = "race_ethnicity")) %>%
+  left_join(white_ratio, by = c("model_id", "location", "output_type_id")) %>%
+  mutate(
+    expected_inf = pop * white_ratio,
+    excess_inf   = ifelse(is.na(pop) | is.na(white_ratio), NA_real_, cum_inf - expected_inf),
+    has_pop_ref  = !is.na(excess_inf)
+  )
+
+missing_combos <- draws_B %>%
+  filter(!has_pop_ref) %>%
+  distinct(location_label, race_ethnicity_label)
+if (nrow(missing_combos) > 0) {
+  message("No population reference available for:\n",
+          paste(sprintf("  - %s x %s", missing_combos$location_label, missing_combos$race_ethnicity_label),
+                collapse = "\n"),
+          "\nAverted infections/deaths for these will be set to 0 until population data is supplied.")
+}
+
+# ======================================================================
+# STEP 3 - Apply counterfactual per draw, across the r grid
+# ======================================================================
+apply_r <- function(r) {
+  draws_B %>%
+    mutate(
+      averted_inf    = ifelse(has_pop_ref, pmax(excess_inf, 0) * r, 0),  # floor excess at 0: only groups WITH excess burden get an averted effect
+      new_inf        = cum_inf - averted_inf,
+      averted_deaths = averted_inf * ifr,
+      new_deaths     = cum_death - averted_deaths,
+      pct_reduction_inf = 100 * averted_inf / cum_inf,
+      r = r
+    )
+}
+draws_all_B <- map_dfr(r_grid, apply_r)
+
+# ======================================================================
+# STEP 4 - VINCENT ENSEMBLE
+#   (a) quantiles of baseline & intervention infections/deaths PER MODEL
+#   (b) average each quantile ACROSS models
+# ======================================================================
+per_model_q_B <- draws_all_B %>%
+  group_by(r, model_id, location, race_ethnicity) %>%
+  summarise(
+    base_inf_025   = quantile(cum_inf,     0.025, na.rm = TRUE),
+    base_inf_50    = quantile(cum_inf,     0.5,   na.rm = TRUE),
+    base_inf_975   = quantile(cum_inf,     0.975, na.rm = TRUE),
+    new_inf_025    = quantile(new_inf,     0.025, na.rm = TRUE),
+    new_inf_50     = quantile(new_inf,     0.5,   na.rm = TRUE),
+    new_inf_975    = quantile(new_inf,     0.975, na.rm = TRUE),
+    base_death_025 = quantile(cum_death,   0.025, na.rm = TRUE),
+    base_death_50  = quantile(cum_death,   0.5,   na.rm = TRUE),
+    base_death_975 = quantile(cum_death,   0.975, na.rm = TRUE),
+    new_death_025  = quantile(new_deaths,  0.025, na.rm = TRUE),
+    new_death_50   = quantile(new_deaths,  0.5,   na.rm = TRUE),
+    new_death_975  = quantile(new_deaths,  0.975, na.rm = TRUE),
+    pctred_inf_025 = quantile(pct_reduction_inf, 0.025, na.rm = TRUE),
+    pctred_inf_50  = quantile(pct_reduction_inf, 0.5,   na.rm = TRUE),
+    pctred_inf_975 = quantile(pct_reduction_inf, 0.975, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+vincent_ens_B <- per_model_q_B %>%
+  group_by(r, location, race_ethnicity) %>%
+  summarise(
+    base_inf_025 = mean(base_inf_025), base_inf_50 = mean(base_inf_50), base_inf_975 = mean(base_inf_975),
+    new_inf_025  = mean(new_inf_025),  new_inf_50  = mean(new_inf_50),  new_inf_975  = mean(new_inf_975),
+    base_death_025 = mean(base_death_025), base_death_50 = mean(base_death_50), base_death_975 = mean(base_death_975),
+    new_death_025  = mean(new_death_025),  new_death_50  = mean(new_death_50),  new_death_975  = mean(new_death_975),
+    pctred_inf_025 = mean(pctred_inf_025), pctred_inf_50 = mean(pctred_inf_50), pctred_inf_975 = mean(pctred_inf_975),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    averted_inf_50   = base_inf_50   - new_inf_50,
+    pct_inf_50       = pctred_inf_50,   # from the paired per-draw quantity, not an independent quantile ratio
+    pct_inf_025      = pctred_inf_025,
+    pct_inf_975      = pctred_inf_975,
+    averted_death_50 = base_death_50 - new_death_50,
+    pct_death_50     = 100 * (base_death_50 - new_death_50) / base_death_50
+  )
+
+vincent_central_B <- vincent_ens_B %>%
+  filter(r == r_central) %>%
+  mutate(race_ethnicity = label_re(race_ethnicity), location = label_loc(location))
+
+cat("\n=== VINCENT ensemble, central (r=0.55): infections, by group x state ===\n")
+print(as.data.frame(vincent_central_B %>%
+                      dplyr::select(location, race_ethnicity, base_inf_50, new_inf_50, averted_inf_50, pct_inf_50)),
+      digits = 4)
+
+cat("\n=== VINCENT ensemble, central (r=0.55): deaths, by group x state ===\n")
+print(as.data.frame(vincent_central_B %>%
+                      dplyr::select(location, race_ethnicity, base_death_50, new_death_50, averted_death_50, pct_death_50)),
+      digits = 4)
+
+# Range across the r grid, per group x state
+vincent_range_B <- vincent_ens_B %>%
+  mutate(race_ethnicity = label_re(race_ethnicity), location = label_loc(location)) %>%
+  group_by(location, race_ethnicity) %>%
+  summarise(inf_averted_min = min(averted_inf_50), inf_averted_max = max(averted_inf_50),
+            inf_pct_min = min(pct_inf_50), inf_pct_max = max(pct_inf_50),
+            death_averted_min = min(averted_death_50), death_averted_max = max(averted_death_50),
+            death_pct_min = min(pct_death_50), death_pct_max = max(pct_death_50),
+            .groups = "drop")
+cat("\n=== VINCENT ensemble: averted infection/death & % range across r grid ===\n")
+print(as.data.frame(vincent_range_B), digits = 4)
+
+# ======================================================================
+# STEP 5 - BAR PLOTS: Scenario B (as modeled) vs household intervention
+#   one for infections, one for deaths, same visual format as before
+# ======================================================================
+make_bar_plot <- function(dat, y_lab, base_label, new_label) {
+  plot_dat <- dat %>%
+    transmute(location, race_ethnicity,
+              !!base_label := base_50,
+              !!new_label  := new_50,
+              base_lo, base_hi, new_lo, new_hi) %>%
+    pivot_longer(cols = c(!!base_label, !!new_label), names_to = "scenario", values_to = "value") %>%
+    mutate(lo = ifelse(scenario == base_label, base_lo, new_lo),
+           hi = ifelse(scenario == base_label, base_hi, new_hi),
+           scenario = factor(scenario, levels = c(base_label, new_label)))
+  
+  ggplot(plot_dat, aes(x = race_ethnicity, y = value, fill = scenario)) +
+    geom_col(position = position_dodge(width = 0.9), color = "black", linewidth = 0.2) +
+    geom_errorbar(aes(ymin = lo, ymax = hi),
+                  position = position_dodge(width = 0.9), width = 0.25) +
+    facet_wrap(~location, scales = "free") +
+    scale_fill_manual(values = setNames(c("#4F5B66", "#0A79AA"), c(base_label, new_label)), name = NULL) +
+    labs(x = "Race/ethnicity", y = y_lab) +
+    theme_bw() +
+    theme(axis.text = element_text(size = 11, color = "black"),
+          axis.title = element_text(size = 12),
+          legend.position = "bottom",
+          strip.text = element_text(size = 12, hjust = 0),
+          strip.background = element_rect(colour = "white", fill = "white"),
+          panel.border = element_rect(colour = "black", fill = NA))
+}
+
+inf_plot_dat <- vincent_central_B %>%
+  transmute(location, race_ethnicity,
+            base_50 = base_inf_50, new_50 = new_inf_50,
+            base_lo = base_inf_025, base_hi = base_inf_975,
+            new_lo = new_inf_025, new_hi = new_inf_975)
+p_inf <- make_bar_plot(inf_plot_dat, "Projected cumulative infections",
+                       "Scenario B", "Household-targeted intervention")
+p_inf
+
+pct_inf_plot_dat <- vincent_central_B %>%
+  transmute(location, race_ethnicity,
+            pct_50 = pct_inf_50,
+            pct_lo = pct_inf_025,
+            pct_hi = pct_inf_975)
+
+p_pct_inf <- ggplot(pct_inf_plot_dat %>% filter(race_ethnicity != "White"), aes(x = race_ethnicity, y = pct_50)) +
+  geom_col(fill = "lightblue", color = "black", linewidth = 0.2) +
+  geom_errorbar(aes(ymin = pct_lo, ymax = pct_hi), width = 0.25) +
+  facet_wrap(~location, scales = "free_x") +
+  labs(x = "Race/ethnicity", y = "Percent reduction in infections\nrelative to Scenario B (%)") +
+  theme_bw() +
+  theme(axis.text = element_text(size = 11, color = "black"),
+        axis.title = element_text(size = 12),
+        strip.text = element_text(size = 12, hjust = 0),
+        strip.background = element_rect(colour = "white", fill = "white"),
+        panel.border = element_rect(colour = "black", fill = NA))
+p_pct_inf
+
+death_plot_dat <- vincent_central_B %>%
+  transmute(location, race_ethnicity,
+            base_50 = base_death_50, new_50 = new_death_50,
+            base_lo = base_death_025, base_hi = base_death_975,
+            new_lo = new_death_025, new_hi = new_death_975)
+p_death <- make_bar_plot(death_plot_dat %>% filter(race_ethnicity != "White"), "Projected cumulative deaths",
+                         "Scenario B", "Household-targeted intervention")
+p_death
+
+plot_grid(p_pct_inf, p_death, ncol = 2)
+
+# ======================================================================
+# STEP 6 - Overall headline (Vincent): sum groups within the ensemble,
+#          per r; report % of total projected infections/deaths averted.
+# ======================================================================
+head(vincent_ens_B)
+overall_vincent_B <- vincent_ens_B %>%
+  mutate(location = label_loc(location)) %>%
+  group_by(r, location, race_ethnicity) %>%
+  summarise(base_inf_total = sum(base_inf_50), new_inf_total = sum(new_inf_50),
+            base_death_total = sum(base_death_50), new_death_total = sum(new_death_50),
+            .groups = "drop") %>%
+  mutate(pct_inf_averted   = 100 * (base_inf_total - new_inf_total) / base_inf_total,
+         pct_death_averted = 100 * (base_death_total - new_death_total) / base_death_total)
+
+cat("\n=== VINCENT ensemble: % of projected infections/deaths averted, by state, across r grid ===\n")
+print(as.data.frame(overall_vincent_B), digits = 4)
+
+for (loc in unique(overall_vincent_B$location)) {
+  loc_dat <- overall_vincent_B %>% filter(location == loc)
+  cat(sprintf("\nHeadline (Vincent) — %s: infections averted = %.1f%% to %.1f%%; deaths averted = %.1f%% to %.1f%% across assumptions.\n",
+              loc,
+              min(loc_dat$pct_inf_averted), max(loc_dat$pct_inf_averted),
+              min(loc_dat$pct_death_averted), max(loc_dat$pct_death_averted)))
+}
 
