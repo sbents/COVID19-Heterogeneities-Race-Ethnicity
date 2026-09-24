@@ -2064,10 +2064,7 @@ plot_grid(scores_supp,error_supp, labels = c("a", "b"), ncol = 1 ,
 
 ##################################################
 # Aug 3 2026 
-# try the bootstrapping method 
-
-library(dplyr)
-library(data.table)
+# Bootstrapping method 
 
 #set.seed(3)
 n_samp <- 1000
@@ -2129,6 +2126,7 @@ resampled <- setDT(w)[skill_boot, on = .(location, wk_out), allow.cartesian = TR
 # ── Intervals: mean + 5th/95th percentile, per location x model_class ────────
 intervals <- resampled[, .(
   mean_score   = mean(score, na.rm = TRUE),
+  median_score = median(score, na.rm = TRUE),
   Q5           = quantile(score, 0.25, na.rm = TRUE),
  # median_score = quantile(score, 0.50, na.rm = TRUE),
   Q95          = quantile(score, 0.75, na.rm = TRUE)
@@ -2153,8 +2151,20 @@ diff_intervals <- diff_dist[, .(
 ), by = .(location)]
 
 print(diff_intervals)
-# If the 90% interval [Q5, Q95] excludes 0, the ensemble and individual
-# models differ (at the 90% level) for that location.
+
+# Difference in distributions by median_score, used in main text: 
+diff_dist <- resampled[, .(mean_score = median(score, na.rm = TRUE)),
+                       by = .(location, samp, model_class)] %>%
+  data.table::dcast(location + samp ~ model_class, value.var = "mean_score") %>%
+  .[, diff := Ensemble - Individual]
+
+diff_intervals <- diff_dist[, .(
+  mean_diff = mean(diff, na.rm = TRUE),
+  Q5        = quantile(diff, 0.025, na.rm = TRUE),
+  Q95       = quantile(diff, 0.975, na.rm = TRUE)
+), by = .(location)]
+
+print(diff_intervals)
 
 
 
@@ -2927,7 +2937,7 @@ resampled <- setDT(w)[skill_boot, on = .(location, wk_out), allow.cartesian = TR
 intervals <- resampled[, .(
   mean_score   = mean(score, na.rm = TRUE),
   Q5           = quantile(score, 0.25, na.rm = TRUE),
-  # median_score = quantile(score, 0.50, na.rm = TRUE),
+   median_score = quantile(score, 0.50, na.rm = TRUE),
   Q95          = quantile(score, 0.75, na.rm = TRUE)
 ), by = .(location, model_class)]
 
@@ -2939,6 +2949,20 @@ print(intervals)
 # For each resample draw, compute mean Ensemble score and mean Individual score,
 # then their difference; the interval on the DIFFERENCE is the actual test.
 diff_dist <- resampled[, .(mean_score = mean(score, na.rm = TRUE)),
+                       by = .(location, samp, model_class)] %>%
+  data.table::dcast(location + samp ~ model_class, value.var = "mean_score") %>%
+  .[, diff := Ensemble - Individual]
+
+diff_intervals <- diff_dist[, .(
+  mean_diff = mean(diff, na.rm = TRUE),
+  Q5        = quantile(diff, 0.025, na.rm = TRUE),
+  Q95       = quantile(diff, 0.975, na.rm = TRUE)
+), by = .(location)]
+
+print(diff_intervals)
+
+# Calculated on median 
+diff_dist <- resampled[, .(mean_score = median(score, na.rm = TRUE)),
                        by = .(location, samp, model_class)] %>%
   data.table::dcast(location + samp ~ model_class, value.var = "mean_score") %>%
   .[, diff := Ensemble - Individual]
