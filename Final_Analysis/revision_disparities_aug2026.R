@@ -233,8 +233,8 @@ serology_plot <- read_csv("serology_data_complete.csv") %>%
   theme_bw() + 
   ggtitle("c") +
   xlab("Date") + 
-  guides(fill=guide_legend(title="Race/ethnicity"))  +
-  guides(col=guide_legend(title="Race/ethnicity"))  +
+  guides(fill=guide_legend(title="Race or ethnicity"))  +
+  guides(col=guide_legend(title="Race or ethnicity"))  +
   ylab("Proportion seropositive") + 
   theme(axis.text = element_text(size = 12, color = "black"),
         axis.title = element_text(size = 12, color = "black"),
@@ -526,8 +526,8 @@ cfr <- gold_standard_data_ts %>%
 cfr_plot_overall <- cfr %>%
   ggplot(aes(x = location, y = CFR_overall_value, fill = race_ethnicity)) + 
   geom_col(position = position_dodge(width = 0.9)) +
-  scale_color_manual("Race/ethnicity",values = re_pal[2:6]) +
-  scale_fill_manual("Race/ethnicity",values = re_pal[2:6])  +
+  scale_color_manual("Race or ethnicity",values = re_pal[2:6]) +
+  scale_fill_manual("Race or ethnicity",values = re_pal[2:6])  +
   xlab("State") + 
   ylab("Case fatality ratio (%)") + 
   theme_bw() +
@@ -583,8 +583,8 @@ cfr_plot_under65
 cfr_plot_over65 <- cfr %>%
   ggplot(aes(x = location, y = CFR_over65_value , fill = race_ethnicity)) + 
   geom_col(position = position_dodge(width = 0.9)) +
-  scale_color_manual("Race/ethnicity",values = re_pal[2:6]) +
-  scale_fill_manual("Race/ethnicity",values = re_pal[2:6])  +
+  scale_color_manual("Race or ethnicity",values = re_pal[2:6]) +
+  scale_fill_manual("Race or ethnicity",values = re_pal[2:6])  +
   xlab("State") + 
   ylab("Case fatality ratio (%)") + 
   theme_bw() +
@@ -620,8 +620,8 @@ fig1b_bottom <- get_IFR %>%
   geom_col(aes(y = value, color = race_ethnicity), position = position_dodge(width = 0.9)) + 
   geom_errorbar(aes(ymin = lower, ymax = upper), position = position_dodge(width = 0.9),
                 width = .5) + 
-  scale_color_manual("Race/ethnicity",values = re_pal[2:6]) +
-  scale_fill_manual("Race/ethnicity",values = re_pal[2:6]) +
+  scale_color_manual("Race or ethnicity",values = re_pal[2:6]) +
+  scale_fill_manual("Race or ethnicity",values = re_pal[2:6]) +
   # facet_wrap(~Age, scales = "free") + 
   xlab("State") + 
   ylab("Infection fatality ratio (%)") + 
@@ -668,6 +668,15 @@ fig1_intro
 
 fig1_intro = plot_grid(top_fig1, bottom_fig1, ncol = 2, rel_widths = c(.5, .35))
 fig1_intro 
+
+
+ggsave("Figure1.tiff",
+  plot = fig1_intro,
+  width = 3600/ 300,
+  height = 2800/ 300,
+  units = "in",
+  dpi = 300,
+  compression = "lzw")
 
 
 # 1450 height x 1000 width 
@@ -972,8 +981,8 @@ phase1 = ggplot (data = scenario_a_plot_p1) +
   geom_line(data = scenario_a_plot_p1 %>% filter(time_value < "2020-11-15"), aes(x = time_value, y = obs/pop_size*100000, col = "Observed"), col = "black", lwd = .9) +
   facet_wrap(location ~ race_ethnicity, nrow = 3) + 
   theme_bw()  +
-  guides(col=guide_legend(title="Race/ethnicity")) +
-  guides(fill=guide_legend(title="Race/ethnicity")) +
+  guides(col=guide_legend(title="Race or ethnicity")) +
+  guides(fill=guide_legend(title="Race or ethnicity")) +
   labs( x = "Date", y = "Incident deaths per 100k")  +
   scale_color_manual(values = re_pal[2:6]) +
   scale_fill_manual(values = re_pal[2:6])  +
@@ -1361,7 +1370,7 @@ ensemble_diff_ca = ggplot(data = quantiles_by_model %>% filter(location == "Cali
   facet_wrap(vars(race_ethnicity), scales = "free", nrow =1) +
   theme_bw() +
   geom_errorbar(aes(ymin = avg_025*100, ymax = avg_975*100), position=position_dodge(.9), width = .2) +
-  xlab("Race/ethnicity") +
+  xlab("Race or ethnicity") +
   ylab("Percent deaths averted (%)") +
   guides(col=guide_legend(title="scenario"), position = "bottom") +
   #scale_fill_viridis(discrete = TRUE, option = "G", begin = .3, end = .9)   +
@@ -1394,7 +1403,7 @@ ensemble_diff_nc = ggplot(data = quantiles_by_model %>% filter(location == "Nort
   facet_wrap(vars(race_ethnicity), scales = "free", nrow =1) +
   theme_bw() +
   geom_errorbar(aes(ymin = avg_025*100, ymax = avg_975*100), position=position_dodge(.9), width = .2) +
-  xlab("Race/ethnicity") +
+  xlab("Race or ethnicity") +
   ylab("Percent deaths averted (%)") +
   guides(col=guide_legend(title="Scenario"), position = "bottom") +
   scale_color_manual(values = scenario_pal[2:4]) +
@@ -1427,8 +1436,18 @@ bottom_fig3= plot_grid(ensemble_diff_ca , ensemble_diff_nc, nrow = 2,
 bottom_fig3
 
 # Compile Figure 3
-plot_grid(vincent_overall, bottom_fig3, ncol = 1, rel_heights = c(1.4, 1.8), labels = c("", "b"))
+figure3 =plot_grid(vincent_overall, bottom_fig3, ncol = 1, rel_heights = c(1.4, 1.8), labels = c("", "b"))
+figure3
 # 1000 x 1100
+
+ggsave("Figure3.tiff",
+       plot = figure3,
+       width = 3100/ 300,
+       height = 3000/ 300,
+       units = "in",
+       dpi = 300,
+       compression = "lzw")
+
 
 ###########################################################################################
 # Supplementary File: Model-specific infection rates                                      #        
@@ -1717,24 +1736,36 @@ mean_wis_ind_mod = unique(ind_mod_stat$mean_wis)
 
 
 # CA
+range(scores$score[scores$location ==6], na.rm = TRUE)
 ca_wis = ggplot(data = scores %>%
                   filter(location == 6), aes( factor(model_id, levels = c("A", "B", "C", "D", "E", "F", "G", "Null", "Ensemble", "Ensemble LOP")), race_ethnicity)) +
   geom_tile(aes(fill = score), colour = "white") +
-  scale_fill_gradient2(
-    low = "royalblue4",
-    mid = "white",
-    high = "tan2",
-    midpoint = 1,
+  #scale_fill_gradient2(
+ #   low = "royalblue3",
+ #   mid = "white",
+ #   high = "tan2",
+ #   midpoint = 1,
+ #   space = "Lab",
+  #  guide = "colourbar",
+  #  aesthetics = "fill", name = "WIS"
+ # ) +
+  scale_fill_gradientn(
+    colors = c("#778DCE", "white", "#E58A3A"),
+    values = scales::rescale(
+      c(0.429, 1, 2.352)
+    ),
+    limits = c(0.429, 2.352),
     space = "Lab",
     guide = "colourbar",
-    aesthetics = "fill"
-  ) +
-  theme_bw() + ylab("Race/ethnicity") + xlab("Model") +
+    aesthetics = "fill",
+    name = "WIS"
+  ) + 
+  theme_bw() + ylab("Race or ethnicity") + xlab("Model") +
   ggtitle("         California") +
   theme(axis.text = element_text(size = 10, color = "black"),
         axis.title = element_text(size = 12, color = "black"),
         axis.line = element_blank(),
-        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        axis.text.x = element_text(angle = 90, vjust =1, hjust = 1),
         axis.ticks = element_line(color = "black"),
         plot.title = element_text(colour = "black", size = 12),
         plot.title.position = "plot",
@@ -1748,22 +1779,47 @@ ca_wis = ggplot(data = scores %>%
         strip.text = element_text(colour = "black", size = 10, hjust = 0),
         strip.background = element_rect(colour="white", fill="white"),
         panel.border = element_rect(colour = "black", fill=NA))
-
+ca_wis
 
 # NC
+range(scores$score[scores$location ==37], na.rm = TRUE)
+
 nc_wis = ggplot(data = scores %>%
                   filter(location == 37), aes( factor(model_id, levels = c("A", "B", "C", "D", "E", "F", "G","Null",  "Ensemble", "Ensemble LOP")), race_ethnicity)) +
   geom_tile(aes(fill = score), colour = "white") +
-  scale_fill_gradient2(
-    low = "royalblue4",
-    mid = "white",
-    high = "tan2",
-    midpoint = 1,
+ # scale_fill_gradient2(
+#    low = "cornflowerblue", # "royalblue3",
+  #  mid = "white",
+ #   high = "tan2",
+  #  midpoint = 1,
+  #  space = "Lab",
+ #   guide = "colourbar",
+  #  aesthetics = "fill", 
+  #  name = "WIS"
+ # ) +
+ # scale_fill_gradient2(
+ #   low = "#778DCE",
+ #   mid = "white",
+  #  high = "tan2",
+  #  midpoint = 1,
+ #   limits = c(0.352, 3.830),
+ #   space = "Lab",
+  #  guide = "colourbar",
+  #  aesthetics = "fill",
+  #  name = "WIS"
+ # ) +
+  scale_fill_gradientn(
+    colors = c("#778DCE", "white", "#E58A3A"),
+    values = scales::rescale(
+      c(0.352, 1, 3.830)
+    ),
+    limits = c(0.352, 3.830),
     space = "Lab",
     guide = "colourbar",
-    aesthetics = "fill"
-  ) +
-  theme_bw() + ylab("Race/ethnicity") + xlab("Model") +
+    aesthetics = "fill",
+    name = "WIS"
+  ) + 
+  theme_bw() + ylab("Race or ethnicity") + xlab("Model") +
   ggtitle("         North Carolina") +
   theme(axis.text = element_text(size = 10, color = "black"),
         axis.title = element_text(size = 12, color = "black"),
@@ -1782,6 +1838,7 @@ nc_wis = ggplot(data = scores %>%
         strip.text = element_text(colour = "black", size = 10, hjust = 0),
         strip.background = element_rect(colour="white", fill="white"),
         panel.border = element_rect(colour = "black", fill=NA))
+nc_wis
 
 wis_plot = plot_grid(ca_wis, nc_wis, ncol = 2, rel_widths = c(.6, .5))
 wis_plot
@@ -1789,9 +1846,16 @@ wis_plot
 ################################################################################
 # Make new figure 2 that includes WIS 
 
-plot_grid(phase1, wis_plot, ncol = 1, rel_heights = c(.5, .25), labels = c("a", "b"))
+figure2 = plot_grid(phase1, wis_plot, ncol = 1, rel_heights = c(.5, .25), labels = c("a", "b"))
+figure2 
 
-
+ggsave("Figure2.tiff",
+       plot = figure2,
+       width = 2900/ 300,
+       height = 3000/ 300,
+       units = "in",
+       dpi = 300,
+       compression = "lzw")
 
 ################################################################################
 # Construct null models
