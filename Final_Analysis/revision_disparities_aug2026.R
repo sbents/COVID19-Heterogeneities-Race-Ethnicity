@@ -121,6 +121,8 @@ gold_standard_data_ts <-
                                          .by = c("time_value", "location")) %>%
           dplyr::mutate(race_ethnicity = "overall"))
 head(gold_standard_data_ts)
+print(min(gold_standard_data_ts$time_value))
+
 
 # Cumulative ratios of deaths by race/ethnicity by location
 gold_standard_data <- obs_death_data %>%
@@ -247,8 +249,8 @@ serology_plot <- read_csv("serology_data_complete.csv") %>%
         #    legend.key.width = unit(0.5, "cm"),
         axis.text.y.right = element_text(size = 12, color = "black"),
         axis.title.y.right = element_text(size = 12, color = "black"),
-        legend.text = element_text(size = 9, color = "black"),
-        legend.title = element_text(size = 10, color = "black"),
+        legend.text = element_text(size = 11, color = "black"),
+        legend.title = element_text(size = 11, color = "black"),
         strip.text = element_text(colour = "black", size = 12, hjust = 0),
         strip.background = element_rect(colour="white", fill="white"),
         panel.border = element_rect(colour = "black", fill=NA)) 
@@ -528,6 +530,7 @@ cfr_plot_overall <- cfr %>%
   geom_col(position = position_dodge(width = 0.9)) +
   scale_color_manual("Race or ethnicity",values = re_pal[2:6]) +
   scale_fill_manual("Race or ethnicity",values = re_pal[2:6])  +
+  guides(fill = guide_legend(nrow = 2)) +
   xlab("State") + 
   ylab("Case fatality ratio (%)") + 
   theme_bw() +
@@ -540,7 +543,7 @@ cfr_plot_overall <- cfr %>%
         plot.subtitle = element_text(colour = "black", size = 12.5),
         legend.position = "bottom",
         legend.key.width = unit(0.5, "cm"),
-        legend.text = element_text(size = 9, color = "black"),
+        legend.text = element_text(size = 11, color = "black"),
         legend.title = element_text(size = 11, color = "black"),
         strip.text = element_text(colour = "black", size = 12, hjust = 0),
         strip.background = element_rect(colour="white", fill="white"),
@@ -659,7 +662,7 @@ bottom_fig1
 bottom_fig1 = plot_grid(fig1b_bottom, cfr_plot_overall, ncol = 2,  rel_widths = c(.24, .32))
 bottom_fig1
 
-bottom_fig1 = plot_grid(fig1b_bottom, cfr_plot_overall, ncol = 1,  rel_widths = c(.24, .32))
+bottom_fig1 = plot_grid(fig1b_bottom, cfr_plot_overall, ncol = 1,  rel_heights = c(.26, .32))
 bottom_fig1
 
 # This is final plot for Figure 1. 
@@ -670,6 +673,15 @@ fig1_intro = plot_grid(top_fig1, bottom_fig1, ncol = 2, rel_widths = c(.5, .35))
 fig1_intro 
 
 
+# PDF 
+ggsave("Figure1_pdf.pdf",
+       plot   = fig1_intro,
+       device = pdf,     # embeds fonts cleanly (important for PDF submission)
+       width  = 9,             # <= 9 inches (landscape max); use 7 if you can go portrait
+       height = 9,             # scale proportionally; your current ratio is 12:9.33
+       units  = "in")
+
+# old saving 
 ggsave("Figure1.tiff",
   plot = fig1_intro,
   width = 3600/ 300,
@@ -1078,6 +1090,7 @@ for(i in models) {
     scale_color_manual(values = re_pal[2:6]) +
     scale_fill_manual(values = re_pal[2:6])  +
     theme(axis.text = element_text(size = 7, color = "black"),
+          axis.title.x = element_blank(),
           axis.title = element_text(size = 12, color = "black"),
           axis.line = element_blank(),
           axis.ticks = element_line(color = "black"),
@@ -1097,12 +1110,20 @@ for(i in models) {
 } 
 
 # Plot all
-combined_plot <- ggarrange(plotlist = model_plots[1:8], ncol = 1, nrow = length(models))
+combined_plot <- ggarrange(plotlist = model_plots[1:3], ncol = 1, nrow = length(models))
 combined_plot
 
 # Plot individual 
-m1 = model_plots[7]
-m1
+plot_123 = ggarrange(plotlist = model_plots[c(9, 4, 5)], ncol = 1, nrow = 3)
+plot_123
+plot_456 = ggarrange(plotlist = model_plots[c(6, 7, 8)], ncol = 1, nrow = 3)
+plot_456
+plot_789 = ggarrange(plotlist = model_plots[c(2, 3)], ncol = 1, nrow = 3)
+plot_789
+# 900 x 1000
+
+
+
 
 ###########################################################################################
 # Figure 3a: Differences in cumulative number of deaths between scenarios                 #                             
@@ -1117,6 +1138,10 @@ vincent <- dplyr::filter(dc, output_type == "quantile", race_ethnicity != "overa
   filter(output_type_id %in% c(.025, .50, .975)) %>%
   group_by(scenario_id, race_ethnicity, location, output_type_id) %>%
   summarize(across(value, ~mean(.x))) 
+
+#vincent %>%
+#  filter(location == "37", race_ethnicity == "black") %>%
+#  tidyr::pivot_wider(names_from = output_type_id, values_from = value)
 
 ## Apply this to Overall population
 setlow_v = vincent %>% filter(output_type_id == .025) %>%
@@ -1162,7 +1187,7 @@ vincent_overall = ggplot(data =full_dat_v_overall) +
   ylab("Cumulative deaths") +
   guides(fill=guide_legend(title="Scenario"), position = "bottom")  +
   theme(legend.position = "none")  +
-  theme(axis.text = element_text(size = 9, color = "black"),
+  theme(axis.text = element_text(size = 10, color = "black"),
         axis.title = element_text(size = 12, color = "black"),
         axis.ticks = element_line(color = "black"),
         plot.title = element_text(colour = "black", size = 13.5, face = "bold"),
@@ -1170,8 +1195,8 @@ vincent_overall = ggplot(data =full_dat_v_overall) +
         plot.subtitle = element_text(colour = "black", size = 12.5),
         plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"),
         legend.key.width = unit(0.5, "cm"),
-        legend.text = element_text(size = 8, color = "black"),
-        legend.title = element_text(size = 9, color = "black"),
+        legend.text = element_text(size = 10, color = "black"),
+        legend.title = element_text(size = 10, color = "black"),
         #legend.margin=margin(1,1.5,0.5,0.5,unit = "line"),
         strip.text = element_text(colour = "black", size = 12, hjust = 0),
         strip.background = element_rect(colour="white", fill="white"),
@@ -1405,7 +1430,7 @@ ensemble_diff_nc = ggplot(data = quantiles_by_model %>% filter(location == "Nort
   geom_errorbar(aes(ymin = avg_025*100, ymax = avg_975*100), position=position_dodge(.9), width = .2) +
   xlab("Race or ethnicity") +
   ylab("Percent deaths averted (%)") +
-  guides(col=guide_legend(title="Scenario"), position = "bottom") +
+  guides(col=guide_legend(title="Scenario", nrow = 2), position = "bottom") +
   scale_color_manual(values = scenario_pal[2:4]) +
   geom_point(position = position_dodge(width = 0.9), aes(col = scenario_id.x), cex = 3)  + 
   theme(legend.position = "bottom") +
@@ -1436,7 +1461,7 @@ bottom_fig3= plot_grid(ensemble_diff_ca , ensemble_diff_nc, nrow = 2,
 bottom_fig3
 
 # Compile Figure 3
-figure3 =plot_grid(vincent_overall, bottom_fig3, ncol = 1, rel_heights = c(1.4, 1.8), labels = c("", "b"))
+figure3 =plot_grid(vincent_overall, bottom_fig3, ncol = 1, rel_heights = c(1.4, 1.9), labels = c("", "b"))
 figure3
 # 1000 x 1100
 
@@ -1447,6 +1472,14 @@ ggsave("Figure3.tiff",
        units = "in",
        dpi = 300,
        compression = "lzw")
+
+## PDF 
+ggsave("Figure3_pdf.pdf",
+       plot   = figure3,
+       device = "pdf",          # base device — no Cairo/X11 needed
+       width  = 9,              # <= 9" landscape limit (was 10.33)
+       height = 10,            # scale to preserve your ~10.33:10 ratio (10 * 9/10.33)
+       units  = "in")
 
 
 ###########################################################################################
@@ -1758,14 +1791,14 @@ ca_wis = ggplot(data = scores %>%
     space = "Lab",
     guide = "colourbar",
     aesthetics = "fill",
-    name = "WIS"
-  ) + 
+    name = "WIS" ) + 
   theme_bw() + ylab("Race or ethnicity") + xlab("Model") +
   ggtitle("         California") +
   theme(axis.text = element_text(size = 10, color = "black"),
         axis.title = element_text(size = 12, color = "black"),
         axis.line = element_blank(),
-        axis.text.x = element_text(angle = 90, vjust =1, hjust = 1),
+      #  axis.text.x = element_text(angle = 90, vjust =1, hjust = 1),
+        axis.text.x = element_text(angle = 45, hjust = 1),
         axis.ticks = element_line(color = "black"),
         plot.title = element_text(colour = "black", size = 12),
         plot.title.position = "plot",
@@ -1773,7 +1806,7 @@ ca_wis = ggplot(data = scores %>%
         plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"),
         legend.position = "right",
         legend.key.width = unit(0.5, "cm"),
-        legend.text = element_text(size = 6, color = "black"),
+        legend.text = element_text(size = 10, color = "black"),
         legend.title = element_text(size = 12, color = "black"),
         legend.margin=margin(1,1.5,0.5,0.5,unit = "line"),
         strip.text = element_text(colour = "black", size = 10, hjust = 0),
@@ -1824,7 +1857,8 @@ nc_wis = ggplot(data = scores %>%
   theme(axis.text = element_text(size = 10, color = "black"),
         axis.title = element_text(size = 12, color = "black"),
         axis.line = element_blank(),
-        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+     #   axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1),
+        axis.text.x = element_text(angle = 45, hjust = 1),
         axis.ticks = element_line(color = "black"),
         plot.title = element_text(colour = "black", size = 12),
         plot.title.position = "plot",
@@ -1832,7 +1866,7 @@ nc_wis = ggplot(data = scores %>%
         plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "cm"),
         legend.position = "none",
         legend.key.width = unit(0.5, "cm"),
-        legend.text = element_text(size = 6, color = "black"),
+        legend.text = element_text(size = 10, color = "black"),
         legend.title = element_text(size = 12, color = "black"),
         legend.margin=margin(1,1.5,0.5,0.5,unit = "line"),
         strip.text = element_text(colour = "black", size = 10, hjust = 0),
@@ -1846,8 +1880,16 @@ wis_plot
 ################################################################################
 # Make new figure 2 that includes WIS 
 
-figure2 = plot_grid(phase1, wis_plot, ncol = 1, rel_heights = c(.5, .25), labels = c("a", "b"))
+figure2 = plot_grid(phase1, wis_plot, ncol = 1, rel_heights = c(.5, .19), labels = c("a", "b"))
 figure2 
+
+# pdf 
+ggsave("Figure2_pdf.pdf",
+       plot   = figure2,
+       device = "pdf",
+       width  = 9,            # down from 9.67 to meet the limit
+       height = 11,           # taller (your current ratio gives ~10.3; bump up as needed)
+       units  = "in")
 
 ggsave("Figure2.tiff",
        plot = figure2,
