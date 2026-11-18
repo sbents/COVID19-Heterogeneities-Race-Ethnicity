@@ -1399,7 +1399,8 @@ ensemble_diff_ca = ggplot(data = quantiles_by_model %>% filter(location == "Cali
   ylab("Percent deaths averted (%)") +
   guides(col=guide_legend(title="scenario"), position = "bottom") +
   #scale_fill_viridis(discrete = TRUE, option = "G", begin = .3, end = .9)   +
-  scale_color_manual(values = scenario_pal[2:4]) +
+ # scale_color_manual(values = scenario_pal[2:4]) +
+  scale_color_manual(values = c(scenario_pal[3], scenario_pal[2], scenario_pal[4])) +
   geom_point(position = position_dodge(width = 0.9), aes(col = scenario_id.x), cex = 3)  + 
   theme(legend.position = "bottom") +
   guides(fill = FALSE) + 
@@ -1431,7 +1432,8 @@ ensemble_diff_nc = ggplot(data = quantiles_by_model %>% filter(location == "Nort
   xlab("Race or ethnicity") +
   ylab("Percent deaths averted (%)") +
   guides(col=guide_legend(title="Scenario", nrow = 2), position = "bottom") +
-  scale_color_manual(values = scenario_pal[2:4]) +
+ # scale_color_manual(values = scenario_pal[2:4]) +
+  scale_color_manual(values = c(scenario_pal[3], scenario_pal[2], scenario_pal[4])) +
   geom_point(position = position_dodge(width = 0.9), aes(col = scenario_id.x), cex = 3)  + 
   theme(legend.position = "bottom") +
   guides(fill = FALSE) + 
@@ -1474,7 +1476,7 @@ ggsave("Figure3.tiff",
        compression = "lzw")
 
 ## PDF 
-ggsave("Figure3_pdf.pdf",
+ggsave("Figure3_pdf_final.pdf",
        plot   = figure3,
        device = "pdf",          # base device — no Cairo/X11 needed
        width  = 9,              # <= 9" landscape limit (was 10.33)
